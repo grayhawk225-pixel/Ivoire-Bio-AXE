@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "737804447993",
+    "project_id": "ivoire-bio-axe",
+    "storage_bucket": "ivoire-bio-axe.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:737804447993:android:7a8ed36b00f0e240c3b228",
+        "android_client_info": {
+          "package_name": "com.example.projet_app1"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDD5DgYcj-z2fecitxGsB0-cgnKwxY0GYg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
