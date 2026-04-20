@@ -38,36 +38,42 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     try {
       final authService = AuthService(FirebaseAuth.instance, FirebaseFirestore.instance);
       final userModel = await authService.signIn(email, password);
+      
       if (userModel != null) {
         final account = SavedAccount(
           uid: userModel.id,
           email: email,
-          password: password, // Sauvegarde locale cryptée pour le switch
+          password: password,
           role: userModel.role.name,
           identifier: userModel.restaurantName ?? userModel.email,
         );
         ref.read(multiAccountProvider.notifier).saveAccount(account);
+        
+        // Redirection automatique : Si l'écran a été poussé (ex: ajout de compte), on le ferme.
+        // Sinon le AuthWrapper de main.dart rafraîchira l'écran d'accueil.
+        if (mounted && Navigator.of(context).canPop()) {
+          Navigator.of(context).pop();
+        }
       } else {
-        // Cas rare: Authentifié Firebase mais pas de document Firestore
         if (mounted) {
           rootScaffoldMessengerKey.currentState?.showSnackBar(
             const SnackBar(
-              content: Text('Compte reconnu mais profil non initialisé. Contactez le support.'),
+              content: Text('Compte reconnu mais profil non trouvé dans la base de données.'),
               backgroundColor: Colors.orange,
             ),
           );
         }
       }
-      // Le AuthWrapper (dans main.dart) s'occupera de la redirection ou de l'affichage de l'erreur brute.
-
-
     } on FirebaseAuthException catch (e) {
       String message = 'Une erreur est survenue.';
-      // Gestion spécifique des erreurs de connexion mal saisie
-      if (e.code == 'user-not-found' || e.code == 'wrong-password' || e.code == 'invalid-credential') {
-        message = 'Email ou mot de passe incorrect.';
+      if (e.code == 'user-not-found' || e.code == 'wrong-password' || e.code == 'invalid-credential' || e.code == 'invalid-email') {
+        message = 'Email ou mot de passe incorrect. Veuillez vérifier vos informations.';
+      } else if (e.code == 'network-request-failed') {
+        message = 'Erreur réseau. Vérifiez votre connexion internet.';
+      } else if (e.code == 'user-disabled') {
+        message = 'Ce compte a été désactivé.';
       } else {
-        message = 'Erreur: ${e.message}';
+        message = 'Erreur d\'authentification: ${e.message}';
       }
       
       if (mounted) {
@@ -78,7 +84,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     } catch (e) {
       if (mounted) {
         rootScaffoldMessengerKey.currentState?.showSnackBar(
-          SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text('Erreur: ${e.toString().replaceAll('Exception: ', '')}'), backgroundColor: Colors.red),
         );
       }
     } finally {

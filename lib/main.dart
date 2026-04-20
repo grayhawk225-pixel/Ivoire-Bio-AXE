@@ -12,6 +12,8 @@ import 'screens/restaurateur/restaurateur_home_screen.dart';
 import 'screens/collecteur/collecteur_home_screen.dart';
 import 'screens/acheteur/acheteur_dashboard.dart';
 import 'services/push_notification_service.dart';
+import 'dart:async';
+import 'package:url_launcher/url_launcher.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -335,9 +337,59 @@ class _PendingApprovalScreen extends StatelessWidget {
   }
 }
 
-class _VerificationRequiredScreen extends StatelessWidget {
+class _VerificationRequiredScreen extends StatefulWidget {
   final String email;
   const _VerificationRequiredScreen({required this.email});
+
+  @override
+  State<_VerificationRequiredScreen> createState() => _VerificationRequiredScreenState();
+}
+
+class _VerificationRequiredScreenState extends State<_VerificationRequiredScreen> {
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    // Vérification automatique toutes les 3 secondes
+    _timer = Timer.periodic(const Duration(seconds: 3), (timer) async {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        await user.reload();
+        if (user.emailVerified) {
+          timer.cancel();
+          // La redirection se fera via le StreamBuilder dans AuthWrapper
+        }
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _openGmail() async {
+    final Uri gmailUrl = Uri.parse('googlegmail://');
+    final Uri webUrl = Uri.parse('https://mail.google.com');
+    
+    try {
+      if (await canLaunchUrl(gmailUrl)) {
+        await launchUrl(gmailUrl);
+      } else if (await canLaunchUrl(webUrl)) {
+        await launchUrl(webUrl, mode: LaunchMode.externalApplication);
+      } else {
+        // Fallback ultime : mailto
+        final Uri mailtoUri = Uri.parse('mailto:');
+        if (await canLaunchUrl(mailtoUri)) {
+          await launchUrl(mailtoUri);
+        }
+      }
+    } catch (e) {
+      debugPrint('Erreur lors de l\'ouverture de Gmail: $e');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -349,22 +401,51 @@ class _VerificationRequiredScreen extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.mark_email_unread_outlined, size: 80, color: Colors.orange),
+              const Icon(Icons.mark_email_unread_outlined, size: 80, color: Colors.orange)
+                  .animate(onPlay: (c) => c.repeat(reverse: true))
+                  .scale(duration: 1000.ms, begin: const Offset(0.9, 0.9), end: const Offset(1.1, 1.1)),
               const SizedBox(height: 24),
               const Text('Vérification Requise', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
               const SizedBox(height: 16),
               Text(
-                'Veuillez cliquer sur le lien envoyé à :\n$email',
+                'Veuillez cliquer sur le lien envoyé à :\n${widget.email}',
                 textAlign: TextAlign.center,
                 style: const TextStyle(color: Colors.grey, height: 1.6),
               ),
               const SizedBox(height: 32),
-              ElevatedButton(
-                onPressed: () => FirebaseAuth.instance.currentUser?.reload(),
-                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF4CAF50), foregroundColor: Colors.white),
-                child: const Text('J\'ai vérifié mon email'),
+              
+              // Nouveau bouton pour Gmail
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _openGmail,
+                  icon: const Icon(Icons.mail_outline_rounded),
+                  label: const Text('Lancer Gmail maintenant', style: TextStyle(fontWeight: FontWeight.bold)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.red[400],
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
               ),
+              
               const SizedBox(height: 16),
+              
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton(
+                  onPressed: () => FirebaseAuth.instance.currentUser?.reload(),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    side: const BorderSide(color: Color(0xFF4CAF50)),
+                  ),
+                  child: const Text('J\'ai déjà vérifié', style: TextStyle(color: Color(0xFF4CAF50), fontWeight: FontWeight.bold)),
+                ),
+              ),
+              
+              const SizedBox(height: 32),
               TextButton(
                 onPressed: () => FirebaseAuth.instance.signOut(),
                 child: const Text('Retour / Se déconnecter', style: TextStyle(color: Colors.red)),

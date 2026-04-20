@@ -41,13 +41,17 @@ class AuthService {
         if (doc.exists) {
           return AppUser.fromMap(doc.data()!, doc.id);
         }
+        // Si le doc n'existe pas, on retourne null pour signaler un profil manquant
+        return null;
       }
       return null;
+    } on FirebaseAuthException {
+      rethrow; // Laisser l'UI gérer les codes d'erreur (wrong-password, user-not-found, etc.)
     } catch (e) {
       if (e.toString().contains('TimeoutException')) {
         throw Exception('Connexion expirée (Réseau trop lent). Veuillez réessayer.');
       }
-      throw Exception('Erreur de connexion: $e');
+      throw Exception('Erreur imprévue: $e');
     }
   }
 

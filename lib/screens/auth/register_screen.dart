@@ -118,6 +118,9 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
               backgroundColor: Colors.green,
             ),
           );
+
+          // Retour à l'AuthWrapper pour afficher l'écran de vérification
+          if (mounted) Navigator.of(context).pop();
         }
       } on FirebaseAuthException catch (e) {
         if (!mounted) return;
