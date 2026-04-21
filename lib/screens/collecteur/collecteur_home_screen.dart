@@ -107,6 +107,26 @@ class _CollecteurHomeScreenState extends ConsumerState<CollecteurHomeScreen>
 
   void _acceptMission(WasteRequest request) async {
     try {
+      // 1. Vérifier si le collecteur a déjà une mission en cours
+      final activeMissions = await FirebaseFirestore.instance
+          .collection('waste_requests')
+          .where('collecteurId', isEqualTo: widget.user.id)
+          .where('status', isEqualTo: 'accepted')
+          .get();
+
+      if (activeMissions.docs.isNotEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Une seule mission ne peut être acceptée à la fois. Veuillez terminer votre mission en cours.'),
+              backgroundColor: Colors.orange,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+        return;
+      }
+
       await ref.read(firestoreServiceProvider).updateWasteRequestStatus(
         request.id, WasteStatus.accepted, collecteurId: widget.user.id);
 
@@ -718,15 +738,12 @@ class _CollecteurHomeScreenState extends ConsumerState<CollecteurHomeScreen>
                   children: [
                     Expanded(
                       child: OutlinedButton.icon(
-                        icon: const Icon(Icons.chat_bubble_rounded, size: 18),
-                        label: const Text('Contacter'),
-                        onPressed: () => Navigator.push(context, MaterialPageRoute(
-                          builder: (ctx) => ChatScreen(
-                            requestId: req.id, 
-                            otherPartyName: restauName, 
-                            otherPartyPhone: restaurateur?.phoneNumber,
-                            currentUser: widget.user
-                          ))),
+                        icon: const Icon(Icons.directions_rounded, size: 18),
+                        label: const Text('Itinéraire'),
+                        onPressed: () async {
+                          final url = 'https://www.google.com/maps/dir/?api=1&destination=${req.location.latitude},${req.location.longitude}';
+                          launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+                        },
                         style: OutlinedButton.styleFrom(
                           foregroundColor: color,
                           side: BorderSide(color: color),
