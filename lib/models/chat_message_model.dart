@@ -6,6 +6,7 @@ class ChatMessage {
   final String senderId;
   final String senderName;
   final String text;
+  final String? imageUrl;
   final DateTime timestamp;
   final bool isRead;
 
@@ -15,6 +16,7 @@ class ChatMessage {
     required this.senderId,
     required this.senderName,
     required this.text,
+    this.imageUrl,
     required this.timestamp,
     this.isRead = false,
   });
@@ -25,6 +27,7 @@ class ChatMessage {
       'senderId': senderId,
       'senderName': senderName,
       'text': text,
+      'imageUrl': imageUrl,
       'timestamp': Timestamp.fromDate(timestamp),
       'isRead': isRead,
     };
@@ -37,6 +40,7 @@ class ChatMessage {
       senderId: data['senderId'] ?? '',
       senderName: data['senderName'] ?? '',
       text: data['text'] ?? '',
+      imageUrl: data['imageUrl'],
       timestamp: (data['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now(),
       isRead: data['isRead'] ?? false,
     );

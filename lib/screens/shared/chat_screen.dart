@@ -7,6 +7,10 @@ import '../../models/user_model.dart';
 import '../../models/chat_message_model.dart';
 import '../../services/firestore_service.dart';
 import '../../services/connectivity_service.dart';
+import '../../services/storage_service.dart';
+import 'package:image_picker/image_picker.dart';
+import 'dart:io' as io;
+import 'dart:convert';
 
 import 'support_screen.dart';
 
@@ -64,6 +68,39 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final Uri url = Uri.parse('tel:${widget.otherPartyPhone}');
     if (await canLaunchUrl(url)) {
       await launchUrl(url);
+    }
+  }
+
+  void _sendPhoto() async {
+    final picker = ImagePicker();
+    final XFile? image = await picker.pickImage(source: ImageSource.camera, imageQuality: 20);
+    
+    if (image == null) return;
+
+    // Afficher un indicateur de chargement temporaire
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Envoi de la photo...'), duration: Duration(seconds: 2)),
+    );
+
+    try {
+      final bytes = await image.readAsBytes();
+      final String base64Image = 'data:image/jpeg;base64,${base64Encode(bytes)}';
+
+      final message = ChatMessage(
+        id: '',
+        requestId: widget.requestId,
+        senderId: widget.currentUser.id,
+        senderName: widget.currentUser.restaurantName ?? (widget.currentUser.role == UserRole.collecteur ? 'Collecteur' : widget.currentUser.email.split('@')[0]),
+        text: '📷 Photo',
+        imageUrl: base64Image,
+        timestamp: DateTime.now(),
+      );
+
+      await ref.read(firestoreServiceProvider).sendChatMessage(message);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur d\'envoi: $e'), backgroundColor: Colors.red));
+      }
     }
   }
 
@@ -244,6 +281,28 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           children: [
             if (!isMe)
               Text(msg.senderName, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
+            if (msg.imageUrl != null) ...[
+              const SizedBox(height: 4),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: msg.imageUrl!.startsWith('data:image')
+                  ? Image.memory(base64Decode(msg.imageUrl!.split(',').last), width: 200, fit: BoxFit.cover)
+                  : Image.network(
+                      msg.imageUrl!,
+                      loadingBuilder: (context, child, loadingProgress) {
+                        if (loadingProgress == null) return child;
+                        return Container(
+                          height: 150,
+                          width: 200,
+                          color: Colors.grey[200],
+                          child: const Center(child: CircularProgressIndicator()),
+                        );
+                      },
+                      errorBuilder: (context, error, stackTrace) => const Icon(Icons.error),
+                    ),
+              ),
+              const SizedBox(height: 4),
+            ],
             Text(
               msg.text,
               style: TextStyle(color: isMe ? Colors.white : Colors.black87, fontSize: 14),
@@ -268,6 +327,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       ),
       child: Row(
         children: [
+          IconButton(
+            icon: const Icon(Icons.camera_alt, color: Color(0xFF4CAF50)),
+            onPressed: _sendPhoto,
+          ),
           Expanded(
             child: TextField(
               controller: _messageController,

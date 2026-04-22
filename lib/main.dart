@@ -15,6 +15,8 @@ import 'services/push_notification_service.dart';
 import 'dart:async';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'services/multi_account_service.dart';
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(
@@ -81,6 +83,9 @@ class _AuthWrapperState extends ConsumerState<AuthWrapper> {
 
   @override
   Widget build(BuildContext context) {
+    // 🔄 Écouter l'état de changement de compte global
+    final isSwitching = ref.watch(isSwitchingAccountProvider);
+
     return StreamBuilder<User?>(
       stream: FirebaseAuth.instance.authStateChanges(),
       builder: (context, authSnapshot) {
@@ -93,6 +98,9 @@ class _AuthWrapperState extends ConsumerState<AuthWrapper> {
         }
 
         if (!authSnapshot.hasData || authSnapshot.data == null) {
+          if (isSwitching) {
+            return const _LoadingScreen(message: 'Authentification...');
+          }
           return const LoginScreen();
         }
 
@@ -109,6 +117,13 @@ class _AuthWrapperState extends ConsumerState<AuthWrapper> {
 
             if (userSnapshot.connectionState == ConnectionState.waiting) {
               return const _LoadingScreen(message: 'Récupération du profil...');
+            }
+
+            // ✅ Désactiver l'état de transition car on a réussi à atteindre la phase Firestore
+            if (isSwitching) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                ref.read(isSwitchingAccountProvider.notifier).update(false);
+              });
             }
 
             if (!userSnapshot.hasData || !userSnapshot.data!.exists) {

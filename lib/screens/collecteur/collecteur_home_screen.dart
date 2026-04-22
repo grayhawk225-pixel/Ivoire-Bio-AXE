@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -149,6 +150,66 @@ class _CollecteurHomeScreenState extends ConsumerState<CollecteurHomeScreen>
       ));
       // Basculer vers l'onglet "En cours" automatiquement
       _tabController.animateTo(1);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red));
+      }
+    }
+  }
+
+  void _markAsCompostAndAccept(WasteRequest request) async {
+    try {
+      // 1. Vérifier si le collecteur a déjà une mission en cours
+      final activeMissions = await FirebaseFirestore.instance
+          .collection('waste_requests')
+          .where('collecteurId', isEqualTo: widget.user.id)
+          .where('status', isEqualTo: 'accepted')
+          .get();
+
+      if (activeMissions.docs.isNotEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Une seule mission ne peut être acceptée à la fois.'),
+              backgroundColor: Colors.orange,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+        return;
+      }
+
+      // 2. Mettre à jour type ET statut
+      await ref.read(firestoreServiceProvider).updateWasteRequestStatus(
+        request.id, 
+        WasteStatus.accepted, 
+        collecteurId: widget.user.id,
+        newType: WasteType.vert, // On force en compost
+      );
+
+      await ref.read(firestoreServiceProvider).logActivity(Activity(
+        id: '',
+        userId: widget.user.id,
+        type: ActivityType.collection,
+        status: ActivityStatus.pending,
+        title: 'Mission Recalibrée (Compost)',
+        description: 'Collecte acceptée en tant que compost dû à la qualité.',
+        amount: 0,
+        timestamp: DateTime.now(),
+        metadata: {
+          'RequestID': request.id,
+          'Type': 'Vert (Reclassé)',
+          'AcceptedAt': DateTime.now().toIso8601String(),
+        },
+      ));
+
+      _tabController.animateTo(1);
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('♻️ Signalé comme compost et accepté !'), backgroundColor: Colors.blueGrey),
+        );
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red));
@@ -499,7 +560,75 @@ class _CollecteurHomeScreenState extends ConsumerState<CollecteurHomeScreen>
           Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                if (req.preuvePhotosUrls.isNotEmpty) ...[
+                  SizedBox(
+                    height: 180,
+                    child: Stack(
+                      children: [
+                        PageView.builder(
+                          itemCount: req.preuvePhotosUrls.length,
+                          itemBuilder: (ctx, idx) {
+                            return ClipRRect(
+                              borderRadius: BorderRadius.circular(12),
+                              child: Image.network(
+                                req.preuvePhotosUrls[idx],
+                                width: double.infinity,
+                                fit: BoxFit.cover,
+                                errorBuilder: (ctx, _, __) => Container(
+                                  color: Colors.grey[200],
+                                  child: const Center(child: Icon(Icons.broken_image, color: Colors.grey)),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                        if (req.preuvePhotosUrls.length > 1)
+                          Positioned(
+                            bottom: 8,
+                            right: 8,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(12)),
+                              child: Text(
+                                '1/${req.preuvePhotosUrls.length}', 
+                                style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)
+                              ),
+                            ),
+                          ),
+                        Positioned(
+                          top: 8,
+                          left: 8,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(color: Colors.black.withOpacity(0.6), borderRadius: BorderRadius.circular(8)),
+                            child: const Row(
+                              children: [
+                                Icon(Icons.photo_library, color: Colors.white, size: 14),
+                                SizedBox(width: 4),
+                                Text('Photos vérifiées', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+                if (req.description != null && req.description!.isNotEmpty) ...[
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    width: double.infinity,
+                    decoration: BoxDecoration(color: Colors.grey[50], borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.grey[200]!)),
+                    child: Text(
+                      req.description!,
+                      style: TextStyle(color: Colors.grey[800], fontSize: 13, fontStyle: FontStyle.italic),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
                 Row(
                   children: [
                     Icon(Icons.access_time_rounded, size: 16, color: Colors.grey[500]),
@@ -518,37 +647,43 @@ class _CollecteurHomeScreenState extends ConsumerState<CollecteurHomeScreen>
                     ),
                   ],
                 ),
-                const SizedBox(height: 14),
+                const SizedBox(height: 18),
+                
+                // Boutons d'Action
                 Row(
                   children: [
-                    // Bouton Itinéraire
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        icon: const Icon(Icons.directions_rounded, size: 18),
-                        label: const Text('Itinéraire'),
-                        onPressed: () async {
-                          final url = 'https://www.google.com/maps/dir/?api=1&destination=${req.location.latitude},${req.location.longitude}';
-                          launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
-                        },
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.blue,
-                          side: const BorderSide(color: Colors.blue),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    // Action 1: Mettre en compost (Si c'est Frais)
+                    if (isFrais) ...[
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          icon: const Icon(Icons.recycling, size: 18),
+                          label: const Text('Compost'),
+                          onPressed: () => _markAsCompostAndAccept(req),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.teal,
+                            side: const BorderSide(color: Colors.teal),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 10),
-                    // Bouton Accepter → Étape 1
+                      const SizedBox(width: 10),
+                    ],
+                    
+                    // Action 2: Collecte normale
                     Expanded(
                       flex: 2,
                       child: ElevatedButton.icon(
                         icon: const Icon(Icons.local_shipping_rounded, size: 20),
-                        label: const Text('Je pars collecter !', style: TextStyle(fontWeight: FontWeight.bold)),
+                        label: Text(
+                          isFrais ? 'Prendre (Élevage)' : 'Je pars collecter !', 
+                          style: const TextStyle(fontWeight: FontWeight.bold)
+                        ),
                         onPressed: () => _acceptMission(req),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: color,
                           foregroundColor: Colors.white,
-                          elevation: 0,
+                          elevation: 2,
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                           padding: const EdgeInsets.symmetric(vertical: 12),
                         ),
@@ -707,6 +842,59 @@ class _CollecteurHomeScreenState extends ConsumerState<CollecteurHomeScreen>
                   ),
                 ),
                 const SizedBox(height: 16),
+
+                // Photos et Description si présents
+                if (req.preuvePhotosUrls.isNotEmpty || (req.description != null && req.description!.isNotEmpty)) ...[
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.grey.shade200),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (req.preuvePhotosUrls.isNotEmpty) ...[
+                          const Text('Photos de l\'alerte', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
+                          const SizedBox(height: 8),
+                          SizedBox(
+                            height: 100,
+                            child: ListView.builder(
+                              scrollDirection: Axis.horizontal,
+                              itemCount: req.preuvePhotosUrls.length,
+                              itemBuilder: (ctx, idx) {
+                                return GestureDetector(
+                                  onTap: () {
+                                    // Optionnel : Afficher en plein écran
+                                  },
+                                  child: Container(
+                                    width: 100,
+                                    margin: const EdgeInsets.only(right: 8),
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(10),
+                                      child: req.preuvePhotosUrls[idx].startsWith('data:image')
+                                        ? Image.memory(base64Decode(req.preuvePhotosUrls[idx].split(',').last), fit: BoxFit.cover)
+                                        : Image.network(req.preuvePhotosUrls[idx], fit: BoxFit.cover),
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                        ],
+                        if (req.description != null && req.description!.isNotEmpty) ...[
+                          const Text('Note du restaurateur', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
+                          const SizedBox(height: 4),
+                          Text(req.description!, style: const TextStyle(fontSize: 14, color: Colors.black87, fontStyle: FontStyle.italic)),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
 
                 // Mini carte
                 ClipRRect(

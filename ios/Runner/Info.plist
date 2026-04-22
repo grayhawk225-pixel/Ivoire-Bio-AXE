@@ -66,5 +66,11 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+    <key>NSCameraUsageDescription</key>
+    <string>Cette application nécessite l'accès à la caméra pour prendre des photos des déchets.</string>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>Cette application nécessite l'accès à la galerie pour choisir des photos des déchets.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Cette application nécessite l'accès au micro (pour la capture vidéo si nécessaire).</string>
 </dict>
 </plist>

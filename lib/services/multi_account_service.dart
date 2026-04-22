@@ -38,30 +38,44 @@ class SavedAccount {
   }
 }
 
-final multiAccountProvider = NotifierProvider<MultiAccountNotifier, List<SavedAccount>>(() {
-  return MultiAccountNotifier();
+// Déplacé en bas pour plus de clarté
+
+/// Notifier pour gérer l'état de transition lors d'un changement de compte.
+class SwitchingAccountNotifier extends Notifier<bool> {
+  @override
+  bool build() => false;
+
+  void update(bool value) {
+    state = value;
+  }
+}
+
+/// Provider pour suivre l'état de transition lors d'un changement de compte.
+/// Permet d'éviter le "flash" de l'écran de login dans AuthWrapper.
+final isSwitchingAccountProvider = NotifierProvider<SwitchingAccountNotifier, bool>(() {
+  return SwitchingAccountNotifier();
 });
 
-class MultiAccountNotifier extends Notifier<List<SavedAccount>> {
+class MultiAccountNotifier extends AsyncNotifier<List<SavedAccount>> {
   final FlutterSecureStorage _storage = const FlutterSecureStorage();
   static const String _accountsKey = 'bioaxe_saved_accounts';
 
   @override
-  List<SavedAccount> build() {
-    _loadAccounts();
-    return [];
+  Future<List<SavedAccount>> build() async {
+    return _loadAccounts();
   }
 
-  Future<void> _loadAccounts() async {
+  Future<List<SavedAccount>> _loadAccounts() async {
     try {
       final data = await _storage.read(key: _accountsKey);
       if (data != null) {
         final List<dynamic> jsonList = jsonDecode(data);
-        state = jsonList.map((e) => SavedAccount.fromMap(e as Map<String, dynamic>)).toList();
+        return jsonList.map((e) => SavedAccount.fromMap(e as Map<String, dynamic>)).toList();
       }
     } catch (e) {
       print('Erreur lors du chargement des comptes sauvegardés : $e');
     }
+    return [];
   }
 
   Future<void> _saveToStorage(List<SavedAccount> accounts) async {
@@ -74,24 +88,23 @@ class MultiAccountNotifier extends Notifier<List<SavedAccount>> {
   }
 
   Future<void> saveAccount(SavedAccount account) async {
-    // Retirer s'il existe déjà pour éviter les doublons puis ajouter à la fin
-    final newList = state.where((acc) => acc.uid != account.uid).toList();
+    // S'assurer que le chargement initial (build) est terminé avant de modifier
+    final currentAccounts = await future;
+    
+    final newList = currentAccounts.where((acc) => acc.uid != account.uid).toList();
     newList.add(account);
-    state = newList;
+    state = AsyncValue.data(newList);
     await _saveToStorage(newList);
   }
 
   Future<void> removeAccount(String uid) async {
-    final newList = state.where((acc) => acc.uid != uid).toList();
-    state = newList;
+    final currentAccounts = await future;
+    final newList = currentAccounts.where((acc) => acc.uid != uid).toList();
+    state = AsyncValue.data(newList);
     await _saveToStorage(newList);
   }
-  
-  SavedAccount? getAccountByUid(String uid) {
-    try {
-      return state.firstWhere((acc) => acc.uid == uid);
-    } catch (e) {
-      return null;
-    }
-  }
 }
+
+final multiAccountProvider = AsyncNotifierProvider<MultiAccountNotifier, List<SavedAccount>>(() {
+  return MultiAccountNotifier();
+});

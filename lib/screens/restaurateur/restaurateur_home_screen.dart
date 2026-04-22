@@ -1,5 +1,8 @@
-import 'dart:io';
+import 'dart:io' as io;
+import 'dart:typed_data';
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -30,70 +33,80 @@ class _RestaurateurHomeScreenState extends ConsumerState<RestaurateurHomeScreen>
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => _WastePhotoSheet(type: type),
+      builder: (ctx) => _WastePhotoSheet(type: type, userId: widget.user.id),
     );
 
-    if (result == null) return; 
-    await _sendAlert(type: result.type, photoFile: result.photoFile);
-  }
+  if (result == null) return; 
+  await _sendAlert(type: result.type, photoUrls: result.photoUrls, description: result.description);
+}
 
-  Future<void> _sendAlert({
-    required WasteType type,
-    File? photoFile,
-  }) async {
-    setState(() => _isLoading = true);
-    final firestoreService = ref.read(firestoreServiceProvider);
-    try {
-      String? photoUrl;
+Future<void> _sendAlert({required WasteType type, required List<String> photoUrls, String? description}) async {
+  if (photoUrls.isEmpty) return; 
 
-      if (photoFile != null) {
-        final storageService = StorageService();
-        photoUrl = await storageService.uploadWastePhoto(
-          file: photoFile,
-          restaurateurId: widget.user.id,
-        );
+  setState(() => _isLoading = true);
+  final firestoreService = ref.read(firestoreServiceProvider);
+  
+  try {
+    // Les photos sont déjà uploadées !
+    debugPrint('✅ [Alert] Photos déjà uploadées: ${photoUrls.length}');
+    
+    // 2. Création de la requête de collecte
+    debugPrint('⏳ [Alert] Création de la requête dans Firestore...');
+    final request = WasteRequest(
+      id: '',
+      restaurateurId: widget.user.id,
+      type: type,
+      status: WasteStatus.pending,
+      createdAt: DateTime.now(),
+      location: widget.user.location ?? const GeoPoint(5.30966, -4.01266),
+      preuvePhotosUrls: photoUrls,
+      description: description,
+    );
+    await firestoreService.createWasteRequest(request);
+    debugPrint('✅ [Alert] Requête créée.');
+
+    // 3. Journalisation de l'activité
+    debugPrint('⏳ [Alert] Journalisation de l\'activité...');
+    await firestoreService.logActivity(Activity(
+      id: '', 
+      userId: widget.user.id, 
+      type: ActivityType.collection, 
+      status: ActivityStatus.pending, 
+      title: 'Alerte Envoyée', 
+      description: 'Demande de collecte (${type == WasteType.frais ? "Bac Frais" : "Bac Vert"})', 
+      amount: 0, 
+      timestamp: DateTime.now(),
+      metadata: {
+        'type': type.toString(),
+        'photos_count': photoUrls.length.toString(),
+        'description': description ?? '',
+        'lat': (widget.user.location?.latitude ?? 5.30966).toString(),
+        'lng': (widget.user.location?.longitude ?? -4.01266).toString(),
       }
-
-      final request = WasteRequest(
-        id: '',
-        restaurateurId: widget.user.id,
-        type: type,
-        status: WasteStatus.pending,
-        createdAt: DateTime.now(),
-        location: widget.user.location ?? const GeoPoint(5.30966, -4.01266),
-        preuvePhotoUrl: photoUrl,
-      );
-
-      await firestoreService.createWasteRequest(request);
-
-      await firestoreService.logActivity(Activity(
-        id: '', 
-        userId: widget.user.id, 
-        type: ActivityType.collection, 
-        status: ActivityStatus.pending, 
-        title: 'Alerte Envoyée', 
-        description: 'Demande de collecte pour ${type == WasteType.frais ? "Bac Frais" : "Bac Vert"}', 
-        amount: 0, 
-        timestamp: DateTime.now(),
-        metadata: {
-          'Type': type == WasteType.frais ? 'Bac Frais' : 'Bac Vert',
-          'Photo': photoUrl ?? 'Sans photo',
-          'CreatedAt': DateTime.now().toIso8601String(),
-          'LieuLat': (widget.user.location?.latitude ?? 5.30966).toString(),
-          'LieuLng': (widget.user.location?.longitude ?? -4.01266).toString(),
-        }
-      ));
-
+    ));
 
       if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('✅ Alerte envoyée !'), backgroundColor: const Color(0xFF4CAF50)),
+          const SnackBar(content: Text('✅ Votre alerte a été envoyée avec succès !'), backgroundColor: Color(0xFF4CAF50)),
         );
       }
     } catch (e) {
+      debugPrint('❌ [Alert] Échec de l\'envoi: $e');
       if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        String errorMsg = e.toString();
+        if (errorMsg.contains('timeout')) {
+          errorMsg = "Le délai d'envoi a expiré. Votre connexion est peut-être trop faible.";
+        } else if (errorMsg.contains('not-found')) {
+          errorMsg = "Erreur de synchronisation serveur (Fichier non trouvé après upload).";
+        }
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('⚠️ $errorMsg'), 
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 6),
+          ),
         );
       }
     } finally {
@@ -331,25 +344,89 @@ class _RestaurateurHomeScreenState extends ConsumerState<RestaurateurHomeScreen>
 
 class _WasteActionResult {
   final WasteType type;
-  final File? photoFile;
-  _WasteActionResult({required this.type, this.photoFile});
+  final List<String> photoUrls;
+  final String? description;
+
+  _WasteActionResult({required this.type, required this.photoUrls, this.description});
 }
 
 class _WastePhotoSheet extends StatefulWidget {
   final WasteType type;
-  const _WastePhotoSheet({required this.type});
+  final String userId;
+  const _WastePhotoSheet({required this.type, required this.userId});
 
   @override
   State<_WastePhotoSheet> createState() => _WastePhotoSheetState();
 }
 
 class _WastePhotoSheetState extends State<_WastePhotoSheet> {
-  File? _selectedPhoto;
+  final List<XFile> _selectedPhotos = [];
+  final Map<String, Uint8List> _webPreviewBytes = {};
+  final Map<String, String?> _uploadedUrls = {}; // Cache pour les URLs déjà uploadées
+  final Map<String, bool> _uploadingStatus = {}; // État d'upload par fichier
+  final TextEditingController _descriptionController = TextEditingController();
   final ImagePicker _picker = ImagePicker();
 
   Future<void> _pickImage(ImageSource source) async {
-    final XFile? image = await _picker.pickImage(source: source, imageQuality: 70);
-    if (image != null) setState(() => _selectedPhoto = File(image.path));
+    try {
+      if (_selectedPhotos.length >= 3) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Maximum 3 photos autorisées.')),
+        );
+        return;
+      }
+      final XFile? image = await _picker.pickImage(source: source, imageQuality: 20);
+      if (image != null) {
+        setState(() {
+          _selectedPhotos.add(image);
+          _uploadingStatus[image.path] = true;
+          if (kIsWeb) {
+            image.readAsBytes().then((bytes) {
+              setState(() => _webPreviewBytes[image.path] = bytes);
+            });
+          }
+        });
+
+        // Upload proactif en arrière-plan
+        _startProactiveUpload(image);
+      }
+    } catch (e) {
+      debugPrint('❌ [Picker] Erreur: $e');
+    }
+  }
+
+  Future<void> _startProactiveUpload(XFile image) async {
+    try {
+      final bytes = await image.readAsBytes();
+      final String base64Image = 'data:image/jpeg;base64,${base64Encode(bytes)}';
+      
+      if (mounted) {
+        setState(() {
+          _uploadedUrls[image.path] = base64Image;
+          _uploadingStatus[image.path] = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('❌ [Base64Conversion] Erreur: $e');
+      if (mounted) {
+        setState(() => _uploadingStatus[image.path] = false);
+      }
+    }
+  }
+
+  void _removePhoto(int index) {
+    setState(() {
+      final photo = _selectedPhotos.removeAt(index);
+      _webPreviewBytes.remove(photo.path);
+      _uploadedUrls.remove(photo.path);
+      _uploadingStatus.remove(photo.path);
+    });
+  }
+
+  @override
+  void dispose() {
+    _descriptionController.dispose();
+    super.dispose();
   }
 
   @override
@@ -359,48 +436,204 @@ class _WastePhotoSheetState extends State<_WastePhotoSheet> {
         color: Colors.white,
         borderRadius: BorderRadius.only(topLeft: Radius.circular(32), topRight: Radius.circular(32)),
       ),
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Text('Prendre une photo', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 16),
-          GestureDetector(
-            onTap: () => _pickImage(ImageSource.camera),
-            child: Container(
-              height: 200,
-              width: double.infinity,
-              decoration: BoxDecoration(
-                color: Colors.grey[100],
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.grey[300]!),
-              ),
-              clipBehavior: Clip.antiAlias,
-              child: _selectedPhoto != null 
-                ? Image.file(_selectedPhoto!, fit: BoxFit.cover)
-                : const Icon(Icons.camera_alt, size: 48, color: Colors.grey),
+      padding: EdgeInsets.only(
+        left: 24, right: 24, top: 24,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Envoyer une alerte', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            const Text(
+              'Ajoutez jusqu\'à 3 photos et une description pour faciliter la collecte.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12, color: Colors.grey, fontStyle: FontStyle.italic),
             ),
-          ),
-          const SizedBox(height: 24),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('Annuler'),
-                ),
+            const SizedBox(height: 20),
+            
+            // Grille de photos
+            SizedBox(
+              height: 120,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                itemCount: _selectedPhotos.length + (_selectedPhotos.length < 3 ? 1 : 0),
+                itemBuilder: (ctx, index) {
+                  if (index == _selectedPhotos.length) {
+                    return GestureDetector(
+                      onTap: () => _pickImage(ImageSource.camera),
+                      child: Container(
+                        width: 120,
+                        margin: const EdgeInsets.only(right: 12),
+                        decoration: BoxDecoration(
+                          color: Colors.grey[100],
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: Colors.orange.withOpacity(0.5), width: 1.5, style: BorderStyle.solid),
+                        ),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.add_a_photo, color: Colors.orange[400]),
+                            const Text('Ajouter', style: TextStyle(fontSize: 12, color: Colors.orange)),
+                          ],
+                        ),
+                      ),
+                    );
+                  }
+
+                  final photo = _selectedPhotos[index];
+                  return Stack(
+                    children: [
+                      Container(
+                        width: 120,
+                        margin: const EdgeInsets.only(right: 12),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(16),
+                          color: Colors.grey[200],
+                        ),
+                        clipBehavior: Clip.antiAlias,
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            kIsWeb 
+                              ? (_webPreviewBytes[photo.path] != null 
+                                  ? Image.memory(_webPreviewBytes[photo.path]!, fit: BoxFit.cover)
+                                  : const Center(child: CircularProgressIndicator(strokeWidth: 2)))
+                              : Image.file(io.File(photo.path), fit: BoxFit.cover),
+                            if (_uploadingStatus[photo.path] == true)
+                              Container(
+                                color: Colors.black38,
+                                child: const Center(child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)),
+                              ),
+                            if (_uploadedUrls[photo.path] != null)
+                              Positioned(
+                                bottom: 4,
+                                right: 4,
+                                child: Container(
+                                  padding: const EdgeInsets.all(2),
+                                  decoration: const BoxDecoration(color: Colors.green, shape: BoxShape.circle),
+                                  child: const Icon(Icons.check, size: 12, color: Colors.white),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                      Positioned(
+                        top: 4,
+                        right: 16,
+                        child: GestureDetector(
+                          onTap: () => _removePhoto(index),
+                          child: Container(
+                            padding: const EdgeInsets.all(4),
+                            decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
+                            child: const Icon(Icons.close, size: 14, color: Colors.white),
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                },
               ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: ElevatedButton(
-                  onPressed: () => Navigator.pop(context, _WasteActionResult(type: widget.type, photoFile: _selectedPhoto)),
-                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF4CAF50), foregroundColor: Colors.white),
-                  child: const Text('Confirmer'),
-                ),
+            ),
+
+            if (_selectedPhotos.isEmpty)
+              const Padding(
+                padding: EdgeInsets.only(top: 8.0),
+                child: Text('Au moins une photo est obligatoire', style: TextStyle(color: Colors.red, fontSize: 11)),
               ),
-            ],
+
+            const SizedBox(height: 20),
+            
+            TextField(
+              controller: _descriptionController,
+              decoration: InputDecoration(
+                hintText: 'Description (ex: Bac plein, accessible par la rue...)',
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                filled: true,
+                fillColor: Colors.grey[50],
+              ),
+              maxLines: 2,
+            ),
+
+            const SizedBox(height: 20),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                _buildSourceButton(
+                  icon: Icons.camera_alt,
+                  label: 'Caméra',
+                  onTap: () => _pickImage(ImageSource.camera),
+                ),
+                const SizedBox(width: 16),
+                _buildSourceButton(
+                  icon: Icons.photo_library,
+                  label: 'Galerie',
+                  onTap: () => _pickImage(ImageSource.gallery),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: OutlinedButton.styleFrom(
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                    ),
+                    child: const Text('Annuler'),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: ElevatedButton(
+                onPressed: (_selectedPhotos.isEmpty || _uploadingStatus.values.any((v) => v)) 
+                  ? null 
+                  : () {
+                      final urls = _selectedPhotos.map((p) => _uploadedUrls[p.path]).whereType<String>().toList();
+                      Navigator.pop(context, _WasteActionResult(
+                        type: widget.type, 
+                        photoUrls: urls,
+                        description: _descriptionController.text.trim().isEmpty ? null : _descriptionController.text.trim(),
+                      ));
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF4CAF50), 
+                      foregroundColor: Colors.white,
+                      disabledBackgroundColor: Colors.grey[300],
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      elevation: 0,
+                    ),
+                    child: const Text('Confirmer'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSourceButton({required IconData icon, required String label, required VoidCallback onTap}) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFF4CAF50).withOpacity(0.1),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, color: const Color(0xFF4CAF50)),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 4),
+          Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
         ],
       ),
     );

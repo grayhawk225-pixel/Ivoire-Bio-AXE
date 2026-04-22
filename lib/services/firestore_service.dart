@@ -70,12 +70,13 @@ class FirestoreService {
             .toList());
   }
 
-  Future<void> updateWasteRequestStatus(String requestId, WasteStatus newStatus, {String? collecteurId, String? photoUrl}) async {
+  Future<void> updateWasteRequestStatus(String requestId, WasteStatus newStatus, {String? collecteurId, List<String>? photoUrls, WasteType? newType}) async {
     final Map<String, dynamic> updates = {
       'status': newStatus.toString().split('.').last,
     };
     if (collecteurId != null) updates['collecteurId'] = collecteurId;
-    if (photoUrl != null) updates['preuvePhotoUrl'] = photoUrl;
+    if (photoUrls != null) updates['preuvePhotosUrls'] = photoUrls;
+    if (newType != null) updates['type'] = newType.toString().split('.').last;
 
     await _db.collection('waste_requests').doc(requestId).update(updates);
   }

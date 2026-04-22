@@ -153,14 +153,25 @@ class _ProfileDrawerState extends ConsumerState<ProfileDrawer> {
 
   void _switchAccount(SavedAccount account) async {
     setState(() => _isSaving = true); // Recycle _isSaving variable for a loading state
+    
+    // Activer l'état de transition global pour éviter le flash du LoginScreen
+    ref.read(isSwitchingAccountProvider.notifier).update(true);
+    
     try {
       final authService = ref.read(authServiceProvider);
+      
+      // Déconnexion propre
       await FirebaseAuth.instance.signOut();
+      
+      // Reconnexion immédiate avec les identifiants sauvegardés
       await authService.signIn(account.email, account.password);
+      
       if (mounted) Navigator.of(context).pop();
     } catch (e) {
       if (mounted) {
         setState(() => _isSaving = false);
+        // En cas d'erreur de connexion, on doit quand même libérer l'écran de chargement
+        ref.read(isSwitchingAccountProvider.notifier).update(false);
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur basculement: $e')));
       }
     }
@@ -457,42 +468,49 @@ class _ProfileDrawerState extends ConsumerState<ProfileDrawer> {
   }
 
   Widget _buildMultiAccountSection() {
-    final accounts = ref.watch(multiAccountProvider).where((acc) => acc.uid != widget.user.id).toList();
+    final accountsAsync = ref.watch(multiAccountProvider);
 
-    return Container(
-      color: Colors.grey[50], // Léger fond pour se détacher
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('Mes Autres Comptes', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.grey)),
-          const SizedBox(height: 8),
-          ...accounts.map((acc) => ListTile(
+    return accountsAsync.maybeWhen(
+      data: (allAccounts) {
+        final otherAccounts = allAccounts.where((acc) => acc.uid != widget.user.id).toList();
+        
+        return Container(
+          color: Colors.grey[50],
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Mes Autres Comptes', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.grey)),
+              const SizedBox(height: 8),
+              ...otherAccounts.map((acc) => ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: CircleAvatar(
+                      radius: 16,
+                      backgroundColor: Colors.grey[200],
+                      child: Text(acc.email[0].toUpperCase(), style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black54, fontSize: 12)),
+                    ),
+                    title: Text(acc.identifier, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                    subtitle: Text('${acc.role} • ${acc.email}', style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                    trailing: const Icon(Icons.swap_horiz, size: 20, color: Colors.grey),
+                    onTap: () => _switchAccount(acc),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  )),
+              ListTile(
                 contentPadding: EdgeInsets.zero,
                 leading: CircleAvatar(
                   radius: 16,
-                  backgroundColor: Colors.grey[200],
-                  child: Text(acc.email[0].toUpperCase(), style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black54, fontSize: 12)),
+                  backgroundColor: Colors.transparent,
+                  child: Icon(Icons.add_circle_outline, color: _roleColor(widget.user.role), size: 24),
                 ),
-                title: Text(acc.identifier, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                subtitle: Text('${acc.role} • ${acc.email}', style: const TextStyle(fontSize: 11, color: Colors.grey)),
-                trailing: const Icon(Icons.swap_horiz, size: 20, color: Colors.grey),
-                onTap: () => _switchAccount(acc),
+                title: Text('Ajouter un compte existant', style: TextStyle(fontSize: 14, color: _roleColor(widget.user.role), fontWeight: FontWeight.w600)),
+                onTap: _addNewAccount,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              )),
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: CircleAvatar(
-              radius: 16,
-              backgroundColor: Colors.transparent,
-              child: Icon(Icons.add_circle_outline, color: _roleColor(widget.user.role), size: 24),
-            ),
-            title: Text('Ajouter un compte existant', style: TextStyle(fontSize: 14, color: _roleColor(widget.user.role), fontWeight: FontWeight.w600)),
-            onTap: _addNewAccount,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
+      orElse: () => const SizedBox.shrink(),
     );
   }
 

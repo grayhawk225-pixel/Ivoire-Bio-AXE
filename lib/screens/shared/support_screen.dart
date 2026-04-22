@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
+import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../models/user_model.dart';
 import '../../models/support_ticket_model.dart';
+import '../../services/storage_service.dart';
+import 'package:image_picker/image_picker.dart';
+import 'dart:io' as io;
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 class SupportScreen extends StatefulWidget {
   final AppUser user;
@@ -20,6 +25,8 @@ class _SupportScreenState extends State<SupportScreen> {
   
   bool _isSubmitting = false;
   String? _selectedSubject;
+  final List<XFile> _selectedPhotos = [];
+  final ImagePicker _picker = ImagePicker();
 
   // Liste des sujets prédéfinis
   final List<String> _predefinedSubjects = [
@@ -37,6 +44,12 @@ class _SupportScreenState extends State<SupportScreen> {
     
     setState(() => _isSubmitting = true);
     try {
+      final List<String> photoUrls = [];
+      for (var photo in _selectedPhotos) {
+        final bytes = await photo.readAsBytes();
+        photoUrls.add('data:image/jpeg;base64,${base64Encode(bytes)}');
+      }
+
       final docRef = FirebaseFirestore.instance.collection('support_tickets').doc();
       TicketStatus activeStatus = TicketStatus.open;
       String userMessage = _messageController.text.trim();
@@ -50,6 +63,7 @@ class _SupportScreenState extends State<SupportScreen> {
         userId: widget.user.id,
         subject: _selectedSubject!,
         message: userMessage,
+        photoUrls: photoUrls,
         status: activeStatus,
         createdAt: DateTime.now(),
       );
@@ -59,6 +73,7 @@ class _SupportScreenState extends State<SupportScreen> {
       if (mounted) {
         _messageController.clear();
         _newPasswordController.clear();
+        _selectedPhotos.clear();
         setState(() => _selectedSubject = null);
         
         if (activeStatus == TicketStatus.closed) {
@@ -159,6 +174,67 @@ class _SupportScreenState extends State<SupportScreen> {
                           }
                           return null;
                         },
+                      ),
+                      const SizedBox(height: 16),
+                      
+                      // Sélecteur de photos
+                      const Text('Photos / Captures d\'écran', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        height: 80,
+                        child: ListView.builder(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: _selectedPhotos.length + (_selectedPhotos.length < 3 ? 1 : 0),
+                          itemBuilder: (ctx, idx) {
+                            if (idx == _selectedPhotos.length) {
+                              return GestureDetector(
+                                onTap: () async {
+                                  final XFile? image = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 20);
+                                  if (image != null) {
+                                    setModalState(() => _selectedPhotos.add(image));
+                                  }
+                                },
+                                child: Container(
+                                  width: 80,
+                                  decoration: BoxDecoration(
+                                    color: Colors.grey[100],
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(color: Colors.grey[300]!),
+                                  ),
+                                  child: const Icon(Icons.add_a_photo, color: Colors.grey),
+                                ),
+                              );
+                            }
+                            final photo = _selectedPhotos[idx];
+                            return Stack(
+                              children: [
+                                Container(
+                                  width: 80,
+                                  margin: const EdgeInsets.only(right: 8),
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(10),
+                                    image: DecorationImage(
+                                      image: kIsWeb ? NetworkImage(photo.path) : FileImage(io.File(photo.path)) as ImageProvider,
+                                      fit: BoxFit.cover,
+                                    ),
+                                  ),
+                                ),
+                                Positioned(
+                                  top: 0,
+                                  right: 4,
+                                  child: GestureDetector(
+                                    onTap: () => setModalState(() => _selectedPhotos.removeAt(idx)),
+                                    child: Container(
+                                      padding: const EdgeInsets.all(2),
+                                      decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
+                                      child: const Icon(Icons.close, size: 12, color: Colors.white),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
+                        ),
                       ),
                       const SizedBox(height: 20),
                       ElevatedButton(
@@ -298,6 +374,26 @@ class _SupportScreenState extends State<SupportScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(ticket.message, maxLines: 5, overflow: TextOverflow.ellipsis),
+                        if (ticket.photoUrls.isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          SizedBox(
+                            height: 60,
+                            child: ListView.builder(
+                              scrollDirection: Axis.horizontal,
+                              itemCount: ticket.photoUrls.length,
+                              itemBuilder: (ctx, idx) => Container(
+                                width: 60,
+                                margin: const EdgeInsets.only(right: 8),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: ticket.photoUrls[idx].startsWith('data:image')
+                                    ? Image.memory(base64Decode(ticket.photoUrls[idx].split(',').last), fit: BoxFit.cover)
+                                    : Image.network(ticket.photoUrls[idx], fit: BoxFit.cover),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                         const SizedBox(height: 8),
                         Text(
                           'Soumis le ${ticket.createdAt.day.toString().padLeft(2,'0')}/${ticket.createdAt.month.toString().padLeft(2,'0')}/${ticket.createdAt.year}',

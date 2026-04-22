@@ -20,7 +20,8 @@ class WasteRequest {
   final DateTime createdAt;
   final GeoPoint location;
   final String? collecteurId;
-  final String? preuvePhotoUrl;
+  final List<String> preuvePhotosUrls;
+  final String? description;
 
   WasteRequest({
     required this.id,
@@ -30,7 +31,8 @@ class WasteRequest {
     required this.createdAt,
     required this.location,
     this.collecteurId,
-    this.preuvePhotoUrl,
+    this.preuvePhotosUrls = const [],
+    this.description,
   });
 
   // Logique métier : "Smart Logic"
@@ -60,7 +62,9 @@ class WasteRequest {
       createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       location: data['location'] ?? const GeoPoint(0, 0),
       collecteurId: data['collecteurId'],
-      preuvePhotoUrl: data['preuvePhotoUrl'],
+      preuvePhotosUrls: (data['preuvePhotosUrls'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? 
+                       (data['preuvePhotoUrl'] != null ? [data['preuvePhotoUrl'].toString()] : []),
+      description: data['description'],
     );
   }
 
@@ -72,7 +76,8 @@ class WasteRequest {
       'createdAt': Timestamp.fromDate(createdAt),
       'location': location,
       'collecteurId': collecteurId,
-      'preuvePhotoUrl': preuvePhotoUrl,
+      'preuvePhotosUrls': preuvePhotosUrls,
+      'description': description,
     };
   }
 
@@ -84,7 +89,8 @@ class WasteRequest {
     DateTime? createdAt,
     GeoPoint? location,
     String? collecteurId,
-    String? preuvePhotoUrl,
+    List<String>? preuvePhotosUrls,
+    String? description,
   }) {
     return WasteRequest(
       id: id ?? this.id,
@@ -94,7 +100,8 @@ class WasteRequest {
       createdAt: createdAt ?? this.createdAt,
       location: location ?? this.location,
       collecteurId: collecteurId ?? this.collecteurId,
-      preuvePhotoUrl: preuvePhotoUrl ?? this.preuvePhotoUrl,
+      preuvePhotosUrls: preuvePhotosUrls ?? this.preuvePhotosUrls,
+      description: description ?? this.description,
     );
   }
 }

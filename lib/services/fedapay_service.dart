@@ -1,6 +1,6 @@
 import 'dart:convert';
-import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import '../config/secrets.dart';
 
 /// Service de paiement FedaPay
 /// Documentation : https://docs.fedapay.com
@@ -9,60 +9,9 @@ import 'package:http/http.dart' as http;
 /// ⚠️  SÉCURITÉ : Ne jamais écrire votre clé LIVE ici si le code est partagé.
 /// En production, utiliser des variables d'environnement ou Firebase Remote Config.
 class FedaPayService {
-  // ⚠️ SÉCURITÉ : Mode SANDBOX pour les tests.
-  // Collez votre clé sk_sandbox ci-dessous.
-  static const String _secretKey = "sk_sandbox_pb1JPxfGFD5Z20LTTmBBiqRl";
-  static const String _baseUrl = "https://sandbox-api.fedapay.com/v1";
-
-  /// Fonction générant un paiement vers le compte du Collecteur (Payout / Virement)
-  Future<bool> sendPayout({
-    required double amount,
-    required String currency,
-    required String operatorName,
-    required String phoneNumber,
-    required String collectorEmail,
-  }) async {
-    try {
-      String mode = 'wave_ci';
-      if (operatorName.toLowerCase().contains('mtn')) mode = 'mtn_ci';
-      if (operatorName.toLowerCase().contains('moov')) mode = 'moov_ci';
-      if (operatorName.toLowerCase().contains('orange')) mode = 'orange_ci';
-
-      final response = await http.post(
-        Uri.parse('$_baseUrl/payouts'),
-        headers: {
-          'Authorization': 'Bearer $_secretKey',
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode({
-          "amount": amount.toInt(),
-          "currency": {"iso": currency},
-          "mode": mode,
-          "customer": {
-            "email": collectorEmail,
-            "phone_number": {"number": phoneNumber, "country": "CI"}
-          }
-        }),
-      );
-
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        final data = jsonDecode(response.body);
-        final payoutId = data['v1/payout']?['id']?.toString();
-        
-        if (payoutId != null) {
-          // Envoyer l'ordre de virement
-          final sendResp = await http.put(
-             Uri.parse('$_baseUrl/payouts/$payoutId/send'),
-             headers: {'Authorization': 'Bearer $_secretKey'},
-          );
-          return (sendResp.statusCode == 200);
-        }
-      }
-      return false;
-    } catch (e) {
-      return false;
-    }
-  }
+  // La clé est maintenant stockée dans lib/config/secrets.dart (ignoré par Git)
+  static const String _secretKey = Secrets.fedapaySecretKey;
+  static const String _baseUrl = "https://api.fedapay.com/v1";
 
   /// Crée une transaction et retourne l'URL de paiement (redirection vers Wave, MTN, etc.)
   Future<String?> createPaymentLink({
@@ -133,16 +82,24 @@ class FedaPayService {
     }
   }
 
-  /// Simulation d'un paiement réussi pour la démonstration
+  /// [Simulation Démo] Gère le processus de paiement complet
+  /// Cette méthode permet de simuler un paiement réussi sans redirection réelle
+  /// pour faciliter les tests et démonstrations.
   Future<bool> processPayment({
-    required BuildContext context,
+    required dynamic context,
     required int amount,
     required String description,
     required String customerEmail,
     required String customerName,
   }) async {
-    // Simulation d'une attente réseau
-    await Future.delayed(const Duration(seconds: 2));
-    return true; // Simule toujours un succès
+    try {
+      // Simulation d'un délai réseau/traitement
+      await Future.delayed(const Duration(seconds: 2));
+      
+      // On retourne toujours vrai pour la démonstration
+      return true;
+    } catch (e) {
+      throw Exception('Erreur simulation paiement: $e');
+    }
   }
 }

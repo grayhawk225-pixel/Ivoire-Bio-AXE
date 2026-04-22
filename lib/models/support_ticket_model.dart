@@ -11,6 +11,7 @@ class SupportTicket {
   final String userId; // L'utilisateur qui demande de l'aide
   final String subject;
   final String message;
+  final List<String> photoUrls;
   final TicketStatus status;
   final DateTime createdAt;
 
@@ -19,6 +20,7 @@ class SupportTicket {
     required this.userId,
     required this.subject,
     required this.message,
+    this.photoUrls = const [],
     required this.status,
     required this.createdAt,
   });
@@ -29,6 +31,7 @@ class SupportTicket {
       userId: data['userId'] ?? '',
       subject: data['subject'] ?? '',
       message: data['message'] ?? '',
+      photoUrls: (data['photoUrls'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [],
       status: TicketStatus.values.firstWhere(
         (e) => e.toString() == 'TicketStatus.${data['status']}',
         orElse: () => TicketStatus.open,
@@ -42,6 +45,7 @@ class SupportTicket {
       'userId': userId,
       'subject': subject,
       'message': message,
+      'photoUrls': photoUrls,
       'status': status.toString().split('.').last,
       'createdAt': Timestamp.fromDate(createdAt),
     };
