@@ -87,7 +87,7 @@ class _AuthWrapperState extends ConsumerState<AuthWrapper> {
     final isSwitching = ref.watch(isSwitchingAccountProvider);
 
     return StreamBuilder<User?>(
-      stream: FirebaseAuth.instance.authStateChanges(),
+      stream: FirebaseAuth.instance.userChanges(),
       builder: (context, authSnapshot) {
         if (authSnapshot.hasError) {
           return _ErrorScreen(message: 'Erreur Connexion (Auth) : ${authSnapshot.error}');
@@ -387,22 +387,32 @@ class _VerificationRequiredScreenState extends State<_VerificationRequiredScreen
 
   Future<void> _openGmail() async {
     final Uri gmailUrl = Uri.parse('googlegmail://');
+    final Uri mailtoUri = Uri.parse('mailto:');
     final Uri webUrl = Uri.parse('https://mail.google.com');
     
     try {
+      // 1. Essayer le schéma spécifique Gmail (iOS surtout)
       if (await canLaunchUrl(gmailUrl)) {
         await launchUrl(gmailUrl);
-      } else if (await canLaunchUrl(webUrl)) {
+        return;
+      }
+      
+      // 2. Essayer mailto: (Ouvre le sélecteur d'app de mail par défaut sur Android/iOS)
+      if (await canLaunchUrl(mailtoUri)) {
+        await launchUrl(mailtoUri);
+        return;
+      }
+
+      // 3. Fallback sur le navigateur web
+      if (await canLaunchUrl(webUrl)) {
         await launchUrl(webUrl, mode: LaunchMode.externalApplication);
-      } else {
-        // Fallback ultime : mailto
-        final Uri mailtoUri = Uri.parse('mailto:');
-        if (await canLaunchUrl(mailtoUri)) {
-          await launchUrl(mailtoUri);
-        }
       }
     } catch (e) {
       debugPrint('Erreur lors de l\'ouverture de Gmail: $e');
+      // Ultime recours si tout échoue
+      if (await canLaunchUrl(webUrl)) {
+        await launchUrl(webUrl, mode: LaunchMode.externalApplication);
+      }
     }
   }
 

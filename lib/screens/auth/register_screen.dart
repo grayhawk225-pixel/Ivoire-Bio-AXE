@@ -3,21 +3,16 @@ import '../../models/user_model.dart';
 import '../../services/auth_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter_animate/flutter_animate.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../services/multi_account_service.dart';
-import 'package:geolocator/geolocator.dart';
-import '../../services/email_service.dart';
 import 'otp_verification_screen.dart';
 
-class RegisterScreen extends ConsumerStatefulWidget {
+class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
 
   @override
-  ConsumerState<RegisterScreen> createState() => _RegisterScreenState();
+  State<RegisterScreen> createState() => _RegisterScreenState();
 }
 
-class _RegisterScreenState extends ConsumerState<RegisterScreen> {
+class _RegisterScreenState extends State<RegisterScreen> {
   final _formKey = GlobalKey<FormState>();
   UserRole _selectedRole = UserRole.restaurateur;
   bool _isLoading = false;
@@ -27,8 +22,6 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _phoneController = TextEditingController();
-  final _fullNameController = TextEditingController();
-
 
   // Controllers Restaurateur
   final _restaurantNameController = TextEditingController();
@@ -45,44 +38,20 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     if (_formKey.currentState!.validate()) {
       setState(() => _isLoading = true);
 
+      final appUser = AppUser(
+        id: '', // Sera rempli par Firebase Auth
+        email: _emailController.text.trim(),
+        role: _selectedRole,
+        createdAt: DateTime.now(),
+        phoneNumber: _phoneController.text.trim(),
+        restaurantName: _selectedRole == UserRole.restaurateur ? _restaurantNameController.text : null,
+        vehicleType: _selectedRole == UserRole.collecteur ? _vehicleType : null,
+        idCardUrl: _selectedRole == UserRole.collecteur ? _idCardController.text : null,
+        profession: _selectedRole == UserRole.acheteur ? _profession : null,
+        deliveryAddress: _selectedRole == UserRole.acheteur ? _deliveryAddressController.text : null,
+      );
+
       try {
-        // Enregistrement de la position GPS (Obligatoire pour les métiers du terrain/restaurateur)
-        Position? position;
-        bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-        if (!serviceEnabled) {
-          throw Exception("Veuillez activer la localisation GPS (Indispensable pour l'itinéraire de collecte).");
-        }
-        
-        LocationPermission permission = await Geolocator.checkPermission();
-        if (permission == LocationPermission.denied) {
-          permission = await Geolocator.requestPermission();
-          if (permission == LocationPermission.denied) {
-            throw Exception("L'autorisation GPS est refusée.");
-          }
-        }
-        
-        if (permission == LocationPermission.deniedForever) {
-          throw Exception("L'autorisation GPS est définitivement refusée dans les paramètres.");
-        }
-        
-        position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.best);
-
-        final appUser = AppUser(
-          id: '', // Sera rempli par Firebase Auth
-          email: _emailController.text.trim(),
-          fullName: _fullNameController.text.trim(),
-          role: _selectedRole,
-          createdAt: DateTime.now(),
-          phoneNumber: _phoneController.text.trim(),
-          location: GeoPoint(position.latitude, position.longitude),
-          restaurantName: _selectedRole == UserRole.restaurateur ? _restaurantNameController.text : null,
-          vehicleType: _selectedRole == UserRole.collecteur ? _vehicleType : null,
-          idCardUrl: _selectedRole == UserRole.collecteur ? _idCardController.text : null,
-          profession: _selectedRole == UserRole.acheteur ? _profession : null,
-          deliveryAddress: _selectedRole == UserRole.acheteur ? _deliveryAddressController.text : null,
-        );
-
-
         final authService = AuthService(FirebaseAuth.instance, FirebaseFirestore.instance);
         
         // 1. Création du compte Email/Password
@@ -94,22 +63,6 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
         );
 
         if (newUser != null) {
-          
-          final account = SavedAccount(
-            uid: newUser.id,
-            email: _emailController.text.trim(),
-            password: _passwordController.text.trim(),
-            role: newUser.role.name,
-            identifier: newUser.restaurantName ?? newUser.email,
-          );
-          ref.read(multiAccountProvider.notifier).saveAccount(account);
-
-          // Déclenchement automatique de l'envoi de l'e-mail de bienvenue en arrière-plan
-          EmailService.sendWelcomeEmail(
-            toEmail: _emailController.text.trim(),
-            role: _selectedRole.toString().split('.').last,
-          );
-
           if (!mounted) return;
 
           ScaffoldMessenger.of(context).showSnackBar(
@@ -118,25 +71,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
               backgroundColor: Colors.green,
             ),
           );
-
-          // Retour à l'AuthWrapper pour afficher l'écran de vérification
-          if (mounted) Navigator.of(context).pop();
         }
-      } on FirebaseAuthException catch (e) {
-        if (!mounted) return;
-        String errorMessage = 'Une erreur est survenue lors de l\'inscription.';
-        if (e.code == 'weak-password') {
-          errorMessage = 'Erreur : Le mot de passe est trop faible (6 caractères minimum).';
-        } else if (e.code == 'email-already-in-use') {
-          errorMessage = 'Erreur : Cet email est déjà utilisé par un autre compte.';
-        } else if (e.code == 'invalid-email') {
-          errorMessage = 'Erreur : Le format de l\'email est invalide.';
-        } else {
-          errorMessage = 'Erreur: ${e.message}';
-        }
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(errorMessage), backgroundColor: Colors.red),
-        );
       } catch (e) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
@@ -145,13 +80,6 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
       } finally {
         if (mounted) setState(() => _isLoading = false);
       }
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Veuillez corriger les erreurs dans le formulaire.'),
-          backgroundColor: Colors.orange,
-        ),
-      );
     }
   }
 
@@ -181,8 +109,6 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 // Informations communes
                 const Text('Informations Générales', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 16),
-                _buildTextField('Nom Complet', Icons.person, _fullNameController),
-                const SizedBox(height: 16),
                 _buildTextField('Email', Icons.email, _emailController),
                 const SizedBox(height: 16),
                 _buildTextField('Mot de passe', Icons.lock, _passwordController, obscure: _obscurePassword, isPassword: true),
@@ -190,7 +116,6 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 
                 // Champ Téléphone sans bouton Vérifier
                 _buildTextField('Numéro de Téléphone', Icons.phone, _phoneController, isNumber: true, prefixText: '+225 '),
-
                 const SizedBox(height: 24),
 
 
@@ -216,7 +141,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                           style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                         ),
                       ),
-              ].animate(interval: 50.ms).fade(duration: 500.ms).slideY(begin: 0.15, curve: Curves.easeOutBack),
+              ],
             ),
           ),
         ),
@@ -293,7 +218,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
           fillColor: Colors.grey[50],
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
         ),
-        value: _vehicleType,
+        initialValue: _vehicleType,
         items: ['Tricycle', 'Wottro', 'Camionnette'].map((val) {
           return DropdownMenuItem(value: val, child: Text(val));
         }).toList(),
@@ -316,8 +241,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
           fillColor: Colors.grey[50],
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
         ),
-        value: _profession,
-        items: ['Éleveur', 'Jardinier / Agriculteur'].map((val) {
+        initialValue: _profession,
+        items: ['Éleveur', 'Jardinier', 'Agriculteur'].map((val) {
           return DropdownMenuItem(value: val, child: Text(val));
         }).toList(),
         onChanged: (val) => setState(() => _profession = val),
@@ -333,18 +258,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
       obscureText: obscure,
       enabled: enabled,
       keyboardType: isNumber ? TextInputType.phone : (label.contains('Email') ? TextInputType.emailAddress : TextInputType.text),
-      validator: (value) {
-        if (value == null || value.isEmpty) return 'Ce champ est requis';
-        if (label.contains('Email') && !value.contains('@')) return 'Veuillez entrer un email valide';
-        if (isPassword && value.length < 6) return 'Le mot de passe doit faire au moins 6 caractères';
-        if (isNumber && label.contains('Téléphone')) {
-          String phoneRaw = value.replaceAll(' ', '');
-          if (phoneRaw.length != 10 || !RegExp(r'^[0-9]+$').hasMatch(phoneRaw)) {
-            return 'Entrez exactement 10 chiffres';
-          }
-        }
-        return null;
-      },
+      validator: (value) => value == null || value.isEmpty ? 'Ce champ est requis' : null,
       decoration: InputDecoration(
         labelText: label,
         prefixText: prefixText,
